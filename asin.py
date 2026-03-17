@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Aapki di hui Beauty Products ki list (Strictly Beauty Only)
+# Aapki di hui Beauty Products ki list
 beauty_products = [
     "Vitamin C Brightening Serum","Hyaluronic Acid Serum","Retinol Cream","Niacinamide Serum","Collagen Serum",
     "Peptide Cream","Bakuchiol Serum","Snail Mucin Essence","Glass Skin Serum","SPF Moisturizer",
@@ -92,7 +92,6 @@ beauty_products = [
 TARGET_COUNT = 10
 
 def run_scraper():
-    # Randomly ek beauty product select karna
     selected_product = random.choice(beauty_products)
     search_query = selected_product.replace(" ", "+")
     print(f"Today's Selected Product: {selected_product}")
@@ -117,25 +116,32 @@ def run_scraper():
         
         page = context.new_page()
 
-        # Added &i=beauty to strictly filter out other categories at the Amazon search level
+        # Directs Amazon to search strictly in the Beauty department
         url = f"https://www.amazon.com/s?k={search_query}&i=beauty&page=1"
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            time.sleep(3) # Human-like delay
+            print(f"Loading Amazon URL: {url}")
+            page.goto(url, wait_until="domcontentloaded", timeout=40000)
+            time.sleep(5) # Delay to allow proxy and page to load properly
             
             elements = page.locator("div[data-asin]").all()
+            print(f"🔍 Amazon page loaded. Total items found before filtering: {len(elements)}")
+
+            if len(elements) == 0:
+                print("🚨 Warning: 0 items found on Amazon. Proxy blocked ho sakti hai ya CAPTCHA aa gaya hai.")
             
+            # Smart Word Matching: Checks if all words of the product exist in the card text
+            clean_product = selected_product.lower().replace("-", " ")
+            search_words = clean_product.split()
+
             for el in elements:
                 asin = el.get_attribute("data-asin")
                 
-                # NAYA LOGIC: Check karega ki product ka naam page ke text mein hai ya nahi
                 try:
                     card_text = el.inner_text().lower()
-                    is_beauty_related = selected_product.lower() in card_text
+                    is_beauty_related = all(word in card_text for word in search_words)
                 except:
                     is_beauty_related = False
 
-                # Check valid 10-character ASIN aur strictly beauty match
                 if asin and len(asin) == 10 and asin.isupper() and is_beauty_related:
                     asins.add(asin)
                     if len(asins) >= TARGET_COUNT:
@@ -148,14 +154,12 @@ def run_scraper():
         
     return list(asins)[:TARGET_COUNT]
 
-# Script run karna
+# Run the script
 final_asins = run_scraper()
 
 # Telegram Messaging
 if final_asins:
-    # ⚠️ SIRF ASIN numbers, koi extra text nahi jaisa aapne manga tha
     message = "\n".join(final_asins)
-
     requests.get(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         params={
